@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
+
 import org.apache.cordova.CordovaResourceApi;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -43,6 +44,8 @@ import java.nio.charset.Charset;
 
 public class LocalFilesystem extends Filesystem {
     private final Context context;
+
+    private static final String LOG_TAG = "LocalFilesystem";
 
     public LocalFilesystem(String name, Context context, CordovaResourceApi resourceApi, File fsRoot) {
         super(Uri.fromFile(fsRoot).buildUpon().appendEncodedPath("").build(), name, resourceApi);
@@ -271,6 +274,10 @@ public class LocalFilesystem extends Filesystem {
             }
         }
 
+        if (destFile.exists()) {
+            destFile.delete();
+        }
+
         CordovaResourceApi.OpenForReadResult offr = resourceApi.openForRead(srcFs.toNativeUri(srcURL));
         copyResource(offr, new FileOutputStream(destFile));
 
@@ -279,7 +286,10 @@ public class LocalFilesystem extends Filesystem {
         }
     }
 
+
     private void copyDirectory(Filesystem srcFs, LocalFilesystemURL srcURL, File dstDir, boolean move) throws IOException, NoModificationAllowedException, InvalidModificationException, FileExistsException {
+
+
         if (move) {
             String realSrcPath = srcFs.filesystemPathForURL(srcURL);
             if (realSrcPath != null) {
@@ -299,17 +309,14 @@ public class LocalFilesystem extends Filesystem {
             }
         }
 
-        if (dstDir.exists()) {
-            if (dstDir.list().length > 0) {
-                throw new InvalidModificationException("directory is not empty");
-            }
-        } else {
+        if (!dstDir.exists()) {
             if (!dstDir.mkdir()) {
                 // If we can't create the directory then fail
                 throw new NoModificationAllowedException("Couldn't create the destination directory");
             }
         }
 
+        // LOG.d(LOG_TAG, "COPY DIRECTORY MAMENE " + dstDir + " move?" + move);
         LocalFilesystemURL[] children = srcFs.listChildren(srcURL);
         for (LocalFilesystemURL childLocalUrl : children) {
             File target = new File(dstDir, new File(childLocalUrl.path).getName());
@@ -354,7 +361,7 @@ public class LocalFilesystem extends Filesystem {
         File destFile = new File(dstNativeUri.getPath());
         if (destFile.exists()) {
             if (!srcURL.isDirectory && destFile.isDirectory()) {
-                throw new InvalidModificationException("Can't copy/move a file to an existing directory");
+                // throw new InvalidModificationException("Can't copy/move a file to an existing directory");
             } else if (srcURL.isDirectory && destFile.isFile()) {
                 throw new InvalidModificationException("Can't copy/move a directory to an existing file");
             }
