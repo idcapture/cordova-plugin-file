@@ -23,6 +23,14 @@
 #import "CDVAssetLibraryFilesystem.h"
 #import <objc/message.h>
 
+#ifndef DLog
+#ifdef DEBUG
+#define DLog(fmt, ...) NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+#define DLog(...)
+#endif
+#endif
+
 static NSString* toBase64(NSData* data) {
     SEL s1 = NSSelectorFromString(@"cdv_base64EncodedString");
     SEL s2 = NSSelectorFromString(@"base64EncodedString");
@@ -756,6 +764,122 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
     [self doCopyMove:command isCopy:NO];
 }
 
+- (void)doCopyMoveWithOverwrite: (CDVInvokedUrlCommand*)command
+                         srcURL: (CDVFilesystemURL*) srcURL
+                          srcFs: (NSObject<CDVFileSystem>*) srcFs
+                        destURL: (CDVFilesystemURL*) destURL
+                        newName: (NSString*) newName
+                         destFs: (NSObject<CDVFileSystem>*) destFs
+                         isCopy: (BOOL)bCopy
+{
+    NSFileManager* fileManager = [NSFileManager defaultManager];
+    
+    NSString* sourcePath = [srcFs filesystemPathForURL: srcURL];
+    BOOL sourceIsDirectory = NO;
+    BOOL sourceExists = [fileManager fileExistsAtPath:sourcePath isDirectory:&sourceIsDirectory];
+    
+    if (!sourceExists || !sourceIsDirectory || ![srcFs isKindOfClass:[CDVLocalFilesystem class]] || ![destFs isKindOfClass:[CDVLocalFilesystem class]]) {
+        // deep copy with overwrite not supported for different filesystem kind -- yet :)
+        // fallback to former implementation for 1- different filesystems 2- not found source 3- file copy/move
+        DLog(@"copy/move: fallback to legacy impl");
+        [destFs copyFileToURL:destURL withName:newName fromFileSystem:srcFs atURL:srcURL copy:bCopy callback:^(CDVPluginResult* result) {
+            [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
+        }];
+    }
+    
+    DLog(@"start copy directory %@ to %@/%@", [srcURL absoluteURL], [destURL absoluteURL], newName);
+
+    NSString* targetPath = [[destFs filesystemPathForURL: destURL] stringByAppendingFormat: @"/%@", newName];
+  
+    NSDirectoryEnumerator * enumerator = [fileManager enumeratorAtURL: [NSURL fileURLWithPath: sourcePath]
+                                           includingPropertiesForKeys: @[NSURLNameKey, NSURLIsDirectoryKey]
+                                                              options: NSDirectoryEnumerationSkipsHiddenFiles
+                                                         errorHandler: ^BOOL(NSURL *url, NSError *error)
+                                          {
+                                              if (error) {
+                                                  NSLog(@"[Error] %@ (%@)", error, url);
+                                                  return NO;
+                                              }
+                                              DLog(@"enumerator error handler called without error :(");
+                                              return YES;
+                                          }];
+
+    NSError* __autoreleasing error = nil;
+    for (NSURL *fileURL in enumerator) {
+        NSString * filename;
+        [fileURL getResourceValue:&filename forKey:NSURLNameKey error:nil];
+        
+        NSNumber * isDirectory;
+        [fileURL getResourceValue:&isDirectory forKey:NSURLIsDirectoryKey error:nil];
+        
+        NSString * fileSourcePath = [[fileURL URLByResolvingSymlinksInPath] path];
+        NSString * fileRelativePath = [fileSourcePath stringByReplacingOccurrencesOfString:sourcePath withString:@""];
+        NSString * fileTargetPath = [targetPath stringByAppendingString: fileRelativePath];
+        
+        BOOL itemCopySuccess = NO;
+        if ([isDirectory boolValue]) {
+            
+            if (![fileManager fileExistsAtPath: fileTargetPath]) {
+                DLog(@"COPY directory \n%@ to \n%@", fileSourcePath, fileTargetPath);
+                
+                itemCopySuccess = [fileManager createDirectoryAtPath: fileTargetPath
+                                        withIntermediateDirectories: YES
+                                                         attributes: nil
+                                                              error: &error];
+                
+            } else {
+                DLog(@"COPY (already exists) directory \n%@ to \n%@", fileSourcePath, fileTargetPath);
+                
+                
+                itemCopySuccess = YES;
+            }
+        } else {
+            
+            if ([fileManager fileExistsAtPath: fileTargetPath]) {
+                
+                DLog(@"OVERWRITE file \n%@ to \n%@", fileSourcePath, fileTargetPath);
+                
+                itemCopySuccess = [fileManager replaceItemAtURL: [NSURL fileURLWithPath:fileTargetPath]
+                                                  withItemAtURL: [NSURL fileURLWithPath:fileSourcePath]
+                                                 backupItemName: nil
+                                                        options: NSFileManagerItemReplacementUsingNewMetadataOnly
+                                               resultingItemURL: nil
+                                                          error: &error];
+            } else {
+                DLog(@"COPY file \n%@ to \n%@", fileSourcePath, fileTargetPath);
+                
+                itemCopySuccess = [fileManager copyItemAtPath:fileSourcePath toPath:fileTargetPath error:&error];
+            }
+        }
+        
+        if (!itemCopySuccess) {
+            NSLog(@"[Error] copying item %@ to %@ (error=%@)", fileSourcePath, fileTargetPath, error);
+            
+            NSString * errorMessage = error == nil ? @"<unknown error>" : [error localizedDescription];
+            CDVPluginResult * result = [CDVPluginResult resultWithStatus: CDVCommandStatus_ERROR
+                                                         messageAsString: [NSString stringWithFormat:@"Cannot copy %@ to %@ error=%@", fileSourcePath, fileTargetPath, errorMessage]];
+            [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
+            return;
+        }
+    }
+    
+    if (!bCopy) {
+        if (![fileManager removeItemAtPath:sourcePath error:&error]) {
+            NSLog(@"[Error] removing source folder for move: %@ (error=%@)", sourcePath, error);
+            
+            NSString * errorMessage = error == nil ? @"<unknown error>" : [error localizedDescription];
+            CDVPluginResult * result = [CDVPluginResult resultWithStatus: CDVCommandStatus_ERROR
+                                                         messageAsString: [NSString stringWithFormat:@"Cannot remove folder %@ error=%@", sourcePath, errorMessage]];
+            [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
+            return;
+        }
+    }
+    
+    NSDictionary* newEntry = [destFs makeEntryForPath:targetPath isDirectory:YES];
+    CDVPluginResult * result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:newEntry];
+    [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
+}
+
 /* Copy/move a file or directory to a new location
  * IN:
  * NSArray* arguments
@@ -798,9 +922,13 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
 
     __weak CDVFile* weakSelf = self;
     [self.commandDelegate runInBackground:^ {
-        [destFs copyFileToURL:destURL withName:newName fromFileSystem:srcFs atURL:srcURL copy:bCopy callback:^(CDVPluginResult* result) {
-            [weakSelf.commandDelegate sendPluginResult:result callbackId:command.callbackId];
-        }];
+        [weakSelf doCopyMoveWithOverwrite: command
+                                   srcURL: srcURL
+                                    srcFs: srcFs
+                                  destURL: destURL
+                                  newName: newName
+                                   destFs: destFs
+                                   isCopy: bCopy];
     }];
 
 }
