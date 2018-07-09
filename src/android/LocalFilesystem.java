@@ -316,7 +316,6 @@ public class LocalFilesystem extends Filesystem {
             }
         }
 
-        // LOG.d(LOG_TAG, "COPY DIRECTORY MAMENE " + dstDir + " move?" + move);
         LocalFilesystemURL[] children = srcFs.listChildren(srcURL);
         for (LocalFilesystemURL childLocalUrl : children) {
             File target = new File(dstDir, new File(childLocalUrl.path).getName());
@@ -361,7 +360,7 @@ public class LocalFilesystem extends Filesystem {
         File destFile = new File(dstNativeUri.getPath());
         if (destFile.exists()) {
             if (!srcURL.isDirectory && destFile.isDirectory()) {
-                // throw new InvalidModificationException("Can't copy/move a file to an existing directory");
+                throw new InvalidModificationException("Can't copy/move a file to an existing directory");
             } else if (srcURL.isDirectory && destFile.isFile()) {
                 throw new InvalidModificationException("Can't copy/move a directory to an existing file");
             }
