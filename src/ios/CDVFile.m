@@ -785,6 +785,7 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
         [destFs copyFileToURL:destURL withName:newName fromFileSystem:srcFs atURL:srcURL copy:bCopy callback:^(CDVPluginResult* result) {
             [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
         }];
+	return;
     }
     
     DLog(@"start copy directory %@ to %@/%@", [srcURL absoluteURL], [destURL absoluteURL], newName);
