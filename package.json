@@ -1,6 +1,6 @@
 {
   "name": "cordova-plugin-file",
-  "version": "6.0.2-copyWithOverwrite",
+  "version": "6.0.3",
   "description": "Cordova File Plugin",
   "types": "./types/index.d.ts",
   "cordova": {
