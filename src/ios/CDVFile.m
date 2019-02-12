@@ -837,6 +837,7 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
         } else {
             
             if ([fileManager fileExistsAtPath: fileTargetPath]) {
+                // target file exists
                 
                 DLog(@"OVERWRITE file \n%@ to \n%@", fileSourcePath, fileTargetPath);
                 
@@ -847,7 +848,28 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
                                                resultingItemURL: nil
                                                           error: &error];
             } else {
+                // target file does not exist
+                
                 DLog(@"COPY file \n%@ to \n%@", fileSourcePath, fileTargetPath);
+                
+                // target directory does not exist
+                if (![fileManager fileExistsAtPath: targetPath]) {
+                    DLog(@"Target directory not exist, we create this : \n%@", targetPath);
+                    BOOL createParentsSucceeded = [fileManager createDirectoryAtPath: targetPath
+                           withIntermediateDirectories: YES
+                                            attributes: nil
+                                                 error: &error];
+                    
+                    if (!createParentsSucceeded) {
+                        NSLog(@"[Error] mkdirs %@ failed (error=%@)", targetPath, error);
+                        
+                        NSString * errorMessage = error == nil ? @"<unknown error>" : [error localizedDescription];
+                        CDVPluginResult * result = [CDVPluginResult resultWithStatus: CDVCommandStatus_ERROR
+                                                                     messageAsString: [NSString stringWithFormat:@"Cannot create parents (%@) error=%@", targetPath, errorMessage]];
+                        [self.commandDelegate sendPluginResult: result callbackId:command.callbackId];
+                        return;
+                    }
+                }
                 
                 itemCopySuccess = [fileManager copyItemAtPath:fileSourcePath toPath:fileTargetPath error:&error];
             }
