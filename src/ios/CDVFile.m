@@ -849,6 +849,18 @@ NSString* const kCDVFilesystemURLPrefix = @"cdvfile";
             } else {
                 DLog(@"COPY file \n%@ to \n%@", fileSourcePath, fileTargetPath);
                 
+                @try {
+                    if(![fileManager fileExistsAtPath:targetPath]){
+                        DLog(@"Target directory not exist, we create this : \n%@", targetPath);
+                        [fileManager createDirectoryAtPath: targetPath
+                               withIntermediateDirectories: YES
+                                                attributes: nil
+                                                     error: &error];
+                    }
+                } @catch (NSException *exception) {
+                    DLog(@"Can't create target directory : \n%@ for reason : \n%@",targetPath, exception.reason);
+                }
+                
                 itemCopySuccess = [fileManager copyItemAtPath:fileSourcePath toPath:fileTargetPath error:&error];
             }
         }
